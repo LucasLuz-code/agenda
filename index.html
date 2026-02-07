@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agenda Estudantil Pro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>Agenda Pro</h1>
+                <button id="theme-toggle" title="Alternar tema"><i class="fas fa-moon"></i></button>
+            </div>
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="search" placeholder="Buscar atividade...">
+            </div>
+            <nav>
+                <ul id="category-list">
+                    <li data-category="all" class="active"><i class="fas fa-list"></i> Todos <span class="count">0</span></li>
+                    <li data-category="provas"><i class="fas fa-file-alt"></i> Provas <span class="count">0</span></li>
+                    <li data-category="tarefas"><i class="fas fa-tasks"></i> Tarefas <span class="count">0</span></li>
+                    <li data-category="trabalhos"><i class="fas fa-book"></i> Trabalhos <span class="count">0</span></li>
+                    <li data-category="tcc"><i class="fas fa-graduation-cap"></i> TCC <span class="count">0</span></li>
+                </ul>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header>
+                <h2>Minhas Atividades</h2>
+                <button id="add-btn" class="btn primary"><i class="fas fa-plus"></i> Nova Atividade</button>
+            </header>
+
+            <form id="item-form" class="card form-card" style="display: none;">
+                <input type="text" id="description" placeholder="Descrição da atividade" required>
+                <div class="form-row">
+                    <input type="date" id="date" required min="2025-01-01">
+                    <select id="priority">
+                        <option value="alta">Alta prioridade</option>
+                        <option value="media" selected>Média prioridade</option>
+                        <option value="baixa">Baixa prioridade</option>
+                    </select>
+                    <select id="category" onchange="toggleDetailsField()">
+                        <option value="provas">Prova</option>
+                        <option value="tarefas">Tarefa</option>
+                        <option value="trabalhos">Trabalho</option>
+                        <option value="tcc">TCC / Monografia</option>
+                    </select>
+                </div>
+                <div id="details-group" class="form-group" style="display: none;">
+                    <label for="details">Detalhes / Etapas / Observações (para TCC)</label>
+                    <textarea id="details" rows="6" placeholder="Ex: Etapas planejadas, orientador, capítulos, links de referências, anotações do orientador..."></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn success">Salvar</button>
+                    <button type="button" id="cancel-btn" class="btn danger">Cancelar</button>
+                </div>
+            </form>
+
+            <section class="items-section">
+                <ul id="item-list" class="sortable"></ul>
+            </section>
+
+            <section id="completed-section" class="completed-section">
+                <h3>Concluídas <span id="completed-count">0</span></h3>
+                <ul id="completed-list"></ul>
+            </section>
+        </main>
+    </div>
+
+    <div id="details-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeModal()">×</span>
+            <h2 id="modal-title"></h2>
+            <div class="modal-info">
+                <span id="modal-date"></span> • <span id="modal-priority"></span> • <span id="modal-category"></span>
+            </div>
+            <div class="modal-details">
+                <h3>Detalhes completos:</h3>
+                <div id="modal-details-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

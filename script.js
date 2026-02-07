@@ -1,248 +1,346 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // === CONFIGURAÇÃO SUPABASE - SEUS DADOS REAIS ===
-    const supabaseUrl = 'https://brrkgsmvyalxeknrdsqm.supabase.co';
-    const supabaseKey = 'sb_publishable_i8agnGLp1kfs4g7zrC8Z9g_XvZ7bzPN';
-    const supabase = Supabase.createClient(supabaseUrl, supabaseKey);
+/**
+ * AGENDA ESTUDANTIL PRO - CORE SCRIPT
+ * Lógica de gerenciamento de estado, integração Supabase e UI dinâmico.
+ */
 
-    // Elementos DOM
-    const itemForm       = document.getElementById('item-form');
-    const desc           = document.getElementById('description');
-    const dateEl         = document.getElementById('date');
-    const priorityEl     = document.getElementById('priority');
-    const catEl          = document.getElementById('category');
-    const detailsEl      = document.getElementById('details');
-    const detailsGroup   = document.getElementById('details-group');
-    const itemList       = document.getElementById('item-list');
-    const completedList  = document.getElementById('completed-list');
-    const addBtn         = document.getElementById('add-btn');
-    const cancelBtn      = document.getElementById('cancel-btn');
-    const search         = document.getElementById('search');
-    const themeToggle    = document.getElementById('theme-toggle');
-    const categoryItems  = document.querySelectorAll('#category-list li');
+// --- CONFIGURAÇÃO SUPABASE ---
+const SUPABASE_URL = 'https://brrkgsmvyalxeknrdsqm.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_i8agnGLp1kfs4g7zrC8Z9g_XvZ7bzPN';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    let items = [];
-    let editingId = null;
-    let currentFilter = 'all';
+// --- ESTADO GLOBAL ---
+let state = {
+    tasks: [],
+    filter: 'Todos',
+    search: '',
+    isDarkMode: false
+};
 
-    // Carrega tarefas do Supabase
-    async function loadItems() {
-        try {
-            const { data, error } = await supabase
-                .from('tarefas')
-                .select('*')
-                .order('date', { ascending: true });
+// --- ELEMENTOS DO DOM ---
+const dom = {
+    listPending: document.getElementById('list-pending'),
+    listCompleted: document.getElementById('list-completed'),
+    countPending: document.getElementById('count-pending'),
+    countCompleted: document.getElementById('count-completed'),
+    modalForm: document.getElementById('modal-form'),
+    modalDetails: document.getElementById('modal-details'),
+    taskForm: document.getElementById('task-form'),
+    tccFields: document.getElementById('tcc-fields'),
+    searchInput: document.getElementById('search-input'),
+    themeToggle: document.getElementById('theme-toggle'),
+    loader: document.getElementById('loader'),
+    navItems: document.querySelectorAll('.nav-item')
+};
 
-            if (error) throw error;
-            items = data || [];
-            render();
-        } catch (err) {
-            console.error('Erro ao carregar tarefas:', err.message);
-            alert('Não foi possível carregar as tarefas. Verifique:\n1. Conexão com internet\n2. Tabela "tarefas" existe no Supabase\n3. Policies permitem acesso público\n\nErro: ' + err.message);
-        }
+// --- INICIALIZAÇÃO ---
+document.addEventListener('DOMContentLoaded', async () => {
+    console.log('🚀 Inicializando Agenda Estudantil Pro...');
+    
+    // 1. Carregar Tema
+    initTheme();
+    
+    // 2. Carregar Dados do Supabase
+    await fetchTasks();
+    
+    // 3. Configurar Drag & Drop
+    initSortable();
+    
+    // 4. Remover Loader
+    setTimeout(() => dom.loader.style.opacity = '0', 500);
+    setTimeout(() => dom.loader.style.display = 'none', 1000);
+});
+
+// --- FUNÇÕES DE DADOS (SUPABASE) ---
+
+/**
+ * Busca todas as tarefas do banco de dados
+ */
+async function fetchTasks() {
+    try {
+        const { data, error } = await supabaseClient
+            .from('tarefas')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        state.tasks = data || [];
+        render();
+    } catch (err) {
+        showError('Erro ao carregar tarefas', err);
     }
+}
 
-    loadItems();
-
-    // Tema
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    themeToggle.innerHTML = savedTheme === 'dark' ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
-
-    themeToggle.addEventListener('click', () => {
-        const newTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
-        themeToggle.innerHTML = newTheme === 'dark' ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
-    });
-
-    window.toggleDetailsField = () => {
-        detailsGroup.style.display = catEl.value === 'tcc' ? 'block' : 'none';
-        if (catEl.value !== 'tcc') detailsEl.value = '';
+/**
+ * Salva ou Atualiza uma tarefa
+ */
+async function handleSaveTask(e) {
+    e.preventDefault();
+    
+    const id = document.getElementById('task-id').value;
+    const taskData = {
+        description: document.getElementById('f-description').value,
+        date: document.getElementById('f-date').value || null,
+        priority: document.getElementById('f-priority').value,
+        category: document.getElementById('f-category').value,
+        details: document.getElementById('f-details').value,
+        completed: false
     };
 
-    function render(filter = 'all', searchTerm = '') {
-        currentFilter = filter;
-        itemList.innerHTML = '';
-        completedList.innerHTML = '';
+    try {
+        let response;
+        if (id) {
+            // Modo Edição
+            response = await supabaseClient
+                .from('tarefas')
+                .update(taskData)
+                .eq('id', id);
+        } else {
+            // Modo Criação
+            response = await supabaseClient
+                .from('tarefas')
+                .insert([taskData]);
+        }
 
-        let filtered = items.filter(item => {
-            if (filter !== 'all' && item.category !== filter) return false;
-            if (searchTerm && !item.description.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-            return true;
-        });
+        if (response.error) throw response.error;
+        
+        closeModals();
+        await fetchTasks();
+    } catch (err) {
+        showError('Erro ao salvar tarefa', err);
+    }
+}
 
-        filtered.sort((a, b) => {
-            if (a.completed !== b.completed) return a.completed ? 1 : -1;
-            const prioOrder = { alta: 0, media: 1, baixa: 2 };
-            const prioDiff = prioOrder[a.priority] - prioOrder[b.priority];
-            if (prioDiff !== 0) return prioDiff;
-            return new Date(a.date) - new Date(b.date);
-        });
+/**
+ * Deleta uma tarefa
+ */
+async function deleteTask(id) {
+    if (!confirm('Deseja realmente excluir esta tarefa?')) return;
 
-        filtered.forEach(item => {
-            let extraButton = '';
-            if (item.category === 'tcc' && item.details) {
-                extraButton = `<button onclick="showDetailsModal('${item.id}')"><i class="fas fa-info-circle"></i> Mais sobre a tarefa</button>`;
-            }
+    try {
+        const { error } = await supabaseClient
+            .from('tarefas')
+            .delete()
+            .eq('id', id);
 
-            const li = document.createElement('li');
-            li.className = `item ${item.completed ? 'completed' : ''}`;
-            li.draggable = !item.completed;
+        if (error) throw error;
+        await fetchTasks();
+    } catch (err) {
+        showError('Erro ao excluir', err);
+    }
+}
 
-            li.innerHTML = `
-                <div class="priority-dot priority-${item.priority}"></div>
-                <div style="flex:1">
-                    <strong>${item.description}</strong>
-                    <div style="margin-top:0.3rem; color:var(--text-light); font-size:0.9rem;">
-                        ${new Date(item.date).toLocaleDateString('pt-BR', {day:'2-digit', month:'short', year:'numeric'})} 
-                        • ${item.priority.charAt(0).toUpperCase() + item.priority.slice(1)}
+/**
+ * Alterna status de conclusão
+ */
+async function toggleComplete(id, currentStatus) {
+    try {
+        const { error } = await supabaseClient
+            .from('tarefas')
+            .update({ completed: !currentStatus })
+            .eq('id', id);
+
+        if (error) throw error;
+        await fetchTasks();
+    } catch (err) {
+        showError('Erro ao atualizar status', err);
+    }
+}
+
+// --- RENDERIZAÇÃO E UI ---
+
+/**
+ * Renderiza a lista de tarefas baseada no estado atual
+ */
+function render() {
+    // Filtragem
+    const filtered = state.tasks.filter(t => {
+        const matchesFilter = state.filter === 'Todos' || t.category === state.filter;
+        const matchesSearch = t.description.toLowerCase().includes(state.search.toLowerCase());
+        return matchesFilter && matchesSearch;
+    });
+
+    const pending = filtered.filter(t => !t.completed);
+    const completed = filtered.filter(t => t.completed);
+
+    // Injeção de HTML
+    dom.listPending.innerHTML = pending.map(t => createCardHTML(t)).join('');
+    dom.listCompleted.innerHTML = completed.map(t => createCardHTML(t)).join('');
+
+    // Atualização de Contadores
+    dom.countPending.textContent = pending.length;
+    dom.countCompleted.textContent = completed.length;
+}
+
+/**
+ * Gera o HTML de um card de tarefa
+ */
+function createCardHTML(task) {
+    const dateFormatted = task.date ? new Date(task.date).toLocaleDateString('pt-BR') : 'Sem data';
+    const isTCC = task.category === 'TCC';
+
+    return `
+        <div class="task-card prio-${task.priority} ${task.completed ? 'completed' : ''} animate__animated animate__fadeIn" data-id="${task.id}">
+            <div class="task-main">
+                <div class="check-btn" onclick="toggleComplete('${task.id}', ${task.completed})">
+                    <i class="fas fa-check"></i>
+                </div>
+                <div class="task-content">
+                    <span class="task-title">${task.description}</span>
+                    <div class="task-meta">
+                        <div class="meta-item"><i class="far fa-calendar"></i> ${dateFormatted}</div>
+                        <div class="tag tag-${task.category.toLowerCase()}">${task.category}</div>
                     </div>
                 </div>
-                <span class="category-tag ${item.category}">${item.category.toUpperCase()}</span>
-                <div class="actions">
-                    ${extraButton}
-                    <button onclick="toggleComplete('${item.id}')"><i class="fas ${item.completed ? 'fa-undo' : 'fa-check'}"></i></button>
-                    <button onclick="editItem('${item.id}')"><i class="fas fa-edit"></i></button>
-                    <button onclick="deleteItem('${item.id}')"><i class="fas fa-trash-alt"></i></button>
-                </div>
-            `;
+            </div>
+            <div class="task-actions">
+                ${isTCC && task.details ? `
+                    <button class="btn-icon" onclick="showTccDetails('${task.id}')" title="Ver Detalhes">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                ` : ''}
+                <button class="btn-icon" onclick="openEditModal('${task.id}')">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn-icon btn-delete" onclick="deleteTask('${task.id}')">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>
+        </div>
+    `;
+}
 
-            (item.completed ? completedList : itemList).appendChild(li);
-        });
+// --- EVENTOS DE INTERFACE ---
 
-        updateCounters();
-        document.getElementById('completed-count').textContent = completedList.children.length;
+// Abrir Modal de Criação
+document.getElementById('btn-new-task').addEventListener('click', () => {
+    dom.taskForm.reset();
+    document.getElementById('task-id').value = '';
+    document.getElementById('modal-title').textContent = 'Criar Nova Tarefa';
+    dom.tccFields.classList.add('hidden');
+    dom.modalForm.classList.add('active');
+});
+
+// Fechar Modais
+document.querySelectorAll('.btn-close').forEach(btn => {
+    btn.addEventListener('click', closeModals);
+});
+
+function closeModals() {
+    dom.modalForm.classList.remove('active');
+    dom.modalDetails.classList.remove('active');
+}
+
+// Lógica de Categoria TCC
+document.getElementById('f-category').addEventListener('change', (e) => {
+    if (e.target.value === 'TCC') {
+        dom.tccFields.classList.remove('hidden');
+        document.getElementById('f-details').required = true;
+    } else {
+        dom.tccFields.classList.add('hidden');
+        document.getElementById('f-details').required = false;
     }
+});
 
-    function updateCounters() {
-        const counts = { all:0, provas:0, tarefas:0, trabalhos:0, tcc:0 };
-        items.forEach(item => {
-            if (!item.completed) counts[item.category]++;
-        });
-        counts.all = items.filter(i => !i.completed).length;
+// Salvar Tarefa
+dom.taskForm.addEventListener('submit', handleSaveTask);
 
-        document.querySelectorAll('#category-list .count').forEach(el => {
-            const cat = el.parentElement.dataset.category;
-            el.textContent = counts[cat] || 0;
-        });
-    }
+// Editar Tarefa
+window.openEditModal = (id) => {
+    const task = state.tasks.find(t => t.id === id);
+    if (!task) return;
 
-    itemForm.addEventListener('submit', async e => {
-        e.preventDefault();
-        const newItem = {
-            description: desc.value.trim(),
-            date: dateEl.value,
-            priority: priorityEl.value,
-            category: catEl.value,
-            details: catEl.value === 'tcc' ? detailsEl.value.trim() : '',
-            completed: false
-        };
+    document.getElementById('task-id').value = task.id;
+    document.getElementById('f-description').value = task.description;
+    document.getElementById('f-date').value = task.date || '';
+    document.getElementById('f-priority').value = task.priority;
+    document.getElementById('f-category').value = task.category;
+    document.getElementById('f-details').value = task.details || '';
 
-        try {
-            let error;
-            if (editingId) {
-                ({ error } = await supabase.from('tarefas').update(newItem).eq('id', editingId));
-                editingId = null;
-            } else {
-                ({ error } = await supabase.from('tarefas').insert([newItem]));
-            }
+    document.getElementById('modal-title').textContent = 'Editar Tarefa';
+    if (task.category === 'TCC') dom.tccFields.classList.remove('hidden');
+    
+    dom.modalForm.classList.add('active');
+};
 
-            if (error) throw error;
-            await loadItems();
-        } catch (err) {
-            console.error('Erro ao salvar:', err.message);
-            alert('Erro ao salvar tarefa: ' + err.message + '\nVerifique o console (F12).');
-        }
+// Detalhes TCC
+window.showTccDetails = (id) => {
+    const task = state.tasks.find(t => t.id === id);
+    const content = document.getElementById('details-content');
+    
+    content.innerHTML = `
+        <div class="input-group">
+            <label>Descrição</label>
+            <p style="font-weight: 700; font-size: 1.1rem;">${task.description}</p>
+        </div>
+        <div class="input-row">
+            <div class="input-group">
+                <label>Data</label>
+                <p>${task.date || 'Não definida'}</p>
+            </div>
+            <div class="input-group">
+                <label>Prioridade</label>
+                <p style="color: var(--prio-${task.priority}); font-weight: 800; text-transform: uppercase;">${task.priority}</p>
+            </div>
+        </div>
+        <div class="input-group">
+            <label>Etapas e Observações</label>
+            <div style="background: var(--bg-main); padding: 15px; border-radius: 10px; white-space: pre-wrap; line-height: 1.6;">${task.details}</div>
+        </div>
+    `;
+    dom.modalDetails.classList.add('active');
+};
 
-        itemForm.style.display = 'none';
-        itemForm.reset();
-        detailsGroup.style.display = 'none';
-    });
+// Busca em Tempo Real
+dom.searchInput.addEventListener('input', (e) => {
+    state.search = e.target.value;
+    render();
+});
 
-    cancelBtn.addEventListener('click', () => {
-        itemForm.style.display = 'none';
-        itemForm.reset();
-        detailsGroup.style.display = 'none';
-        editingId = null;
-    });
-
-    addBtn.addEventListener('click', () => {
-        editingId = null;
-        itemForm.style.display = 'block';
-        toggleDetailsField();
-    });
-
-    window.toggleComplete = async id => {
-        try {
-            const item = items.find(i => i.id === id);
-            if (!item) return;
-            const { error } = await supabase.from('tarefas').update({ completed: !item.completed }).eq('id', id);
-            if (error) throw error;
-            await loadItems();
-        } catch (err) {
-            console.error(err);
-        }
-    };
-
-    window.editItem = id => {
-        const item = items.find(i => i.id === id);
-        if (!item) return;
-        editingId = id;
-        desc.value = item.description;
-        dateEl.value = item.date;
-        priorityEl.value = item.priority;
-        catEl.value = item.category;
-        detailsEl.value = item.details || '';
-        itemForm.style.display = 'block';
-        toggleDetailsField();
-    };
-
-    window.deleteItem = async id => {
-        if (!confirm('Deseja realmente excluir esta tarefa?')) return;
-        try {
-            const { error } = await supabase.from('tarefas').delete().eq('id', id);
-            if (error) throw error;
-            await loadItems();
-        } catch (err) {
-            console.error(err);
-            alert('Erro ao excluir: ' + err.message);
-        }
-    };
-
-    window.showDetailsModal = id => {
-        const item = items.find(i => i.id === id);
-        if (!item) return;
-        document.getElementById('modal-title').textContent = item.description;
-        document.getElementById('modal-date').textContent = new Date(item.date).toLocaleDateString('pt-BR');
-        document.getElementById('modal-priority').textContent = item.priority.charAt(0).toUpperCase() + item.priority.slice(1);
-        document.getElementById('modal-category').textContent = item.category.toUpperCase();
-        document.getElementById('modal-details-content').innerHTML = item.details ? item.details.replace(/\n/g, '<br>') : '<em>Sem detalhes adicionais.</em>';
-        document.getElementById('details-modal').style.display = 'block';
-    };
-
-    window.closeModal = () => {
-        document.getElementById('details-modal').style.display = 'none';
-    };
-
-    window.onclick = event => {
-        const modal = document.getElementById('details-modal');
-        if (event.target === modal) modal.style.display = 'none';
-    };
-
-    categoryItems.forEach(li => {
-        li.addEventListener('click', () => {
-            categoryItems.forEach(i => i.classList.remove('active'));
-            li.classList.add('active');
-            render(li.dataset.category, search.value);
-        });
-    });
-
-    search.addEventListener('input', () => render(currentFilter, search.value));
-
-    new Sortable(itemList, {
-        animation: 150,
-        handle: '.item',
-        filter: '.completed',
-        onEnd: () => loadItems()
+// Filtros da Sidebar
+dom.navItems.forEach(item => {
+    item.addEventListener('click', () => {
+        dom.navItems.forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+        state.filter = item.dataset.filter;
+        render();
     });
 });
+
+// --- UTILITÁRIOS ---
+
+function initSortable() {
+    new Sortable(dom.listPending, {
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        handle: '.task-card'
+    });
+}
+
+function initTheme() {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark') {
+        document.body.classList.replace('light-mode', 'dark-mode');
+        state.isDarkMode = true;
+        updateThemeUI();
+    }
+}
+
+dom.themeToggle.addEventListener('click', () => {
+    state.isDarkMode = !state.isDarkMode;
+    document.body.classList.toggle('dark-mode');
+    document.body.classList.toggle('light-mode');
+    localStorage.setItem('theme', state.isDarkMode ? 'dark' : 'light');
+    updateThemeUI();
+});
+
+function updateThemeUI() {
+    const icon = dom.themeToggle.querySelector('i');
+    const text = dom.themeToggle.querySelector('span');
+    icon.className = state.isDarkMode ? 'fas fa-sun' : 'fas fa-moon';
+    text.textContent = state.isDarkMode ? 'Modo Claro' : 'Modo Escuro';
+}
+
+function showError(title, err) {
+    console.error(`❌ ${title}:`, err);
+    alert(`${title}\n\nVerifique o console para detalhes técnicos.`);
+}
